@@ -283,6 +283,7 @@ class Runner:
         out_normal_fine = []
 
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+           
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
 
@@ -360,19 +361,14 @@ class Runner:
 
         rays_o, rays_d = self.dataset.gen_rays_between(idx_0, idx_1, ratio, resolution_level=resolution_level)
 
-        print(f"Rays_o_shape in original: ", {rays_o.shape})
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-        print("Rays_o type in original: ", type(rays_o))
 
         out_rgb_fine = []
 
         
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
-            print("rays_o_original grup shape: ", torch.tensor(rays_o_batch).shape)
-            print("rays_d_original grup shape: ", torch.tensor(rays_d_batch).shape)
-            print("H and W in original: ", H, W)
 
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
@@ -397,28 +393,51 @@ class Runner:
         Interpolate view between two cameras.
         """
         out_rgb_fine = []
-        
+
+        # try another near - far
+        near = 2.0 * torch.ones_like(rays_d[:, :1])
+        far = 6.0 * torch.ones_like(rays_d[:, :1])
+        near_3 = near[:750]
+        far_3 = far[:750]
+
+        print(f"Near - Far check 1 shape: {len(near_3), len(far_3)}")
+        print(f"Near - Far check 1 shape: {len(near_3[0]), len(far_3[0])}")
+       
+        # try another near - far
+
         N_vertices = len(vertices_)
+        print("Check 1: rays_o.shape:", len(rays_o))
+        print("Check 1: rays_o.shape:", len(rays_o[0]))
         rays_o = rays_o.split(750)
         rays_d = rays_d.split(750)
-   
-        near, far = self.dataset.near_far_from_sphere(torch.tensor(rays_o), torch.tensor(rays_d)) 
-         
+        
+        print("Check 2: rays_o.shape:", len(rays_o))
+        print("Check 2: rays_o.shape:", len(rays_o[0]))
+        print("Check 2: rays_o.shape:", len(rays_o[0][0]))
+        
+             
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+            print("Check 3: Rays_o_batch:", len(rays_o_batch))   
+      
+            near_2, far_2 = self.dataset.near_far_from_sphere(torch.tensor(rays_o_batch), torch.tensor(rays_d_batch)) 
+            print(f"Near - Far check 2 shape: {len(near_2), len(far_2)}")
+            print(f"Near - Far check 2 shape: {len(near_2[0]), len(far_2[0])}")
 
-            print("Check 1 | rays_o_batch:", rays_o_batch.shape)    
-            #near, far = self.dataset.near_far_from_sphere(torch.tensor(rays_o_batch), torch.tensor(rays_d_batch)) 
+            # try another near - far
+            # print(f"Near - Far check 2: {near[:10], far[:10]}")
+            # try another near - far
+
             #comment out for debugging values
             #background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
             background_rgb = None
             render_out = self.renderer.render(rays_o_batch,
                                               rays_d_batch,
-                                              near,
-                                              far,
+                                              near_2,
+                                              far_2,
                                               cos_anneal_ratio=self.get_cos_anneal_ratio(),
                                               background_rgb=background_rgb)
             out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
-        
+            
             del render_out
  
       
@@ -465,7 +484,21 @@ class Runner:
         vertices_2, triangles, bound_min, bound_max, mesh = runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
         vertices_ = np.asarray(mesh.vertices).astype(np.float32)
 
-        mesh.compute_vertex_normals()
+        # trial for trimesh error
+        # print("trial for trimesh error")
+        # face = np.empty(len(triangles), dtype=[('vertex_indices', 'i4', (3,))])
+        # face['vertex_indices'] = triangles
+
+        # PlyData([PlyElement.describe(vertices_[:, 0], 'vertex'), 
+        #         PlyElement.describe(face, 'face')]).write('test_write.ply')
+
+        # # remove noise in the mesh by keeping only the biggest cluster
+        # print('Removing noise ...')
+        # mesh = o3d.io.read_triangle_mesh("test_write.ply")
+        # trial for trimesh error
+
+
+        # mesh.compute_vertex_normals()
         rays_d = torch.cuda.FloatTensor(np.asarray(mesh.vertex_normals))
         near = bound_min * torch.ones_like(rays_d[:, :1])
         far = bound_max * torch.ones_like(rays_d[:, :1])
@@ -474,14 +507,14 @@ class Runner:
         self.render_novel_image_v3(None,
                           rays_o, rays_d, vertices_, triangles, resolution_level=4)
 
+        
         # for i in range(n_frames):
         #     print(i)
         #     images.append(self.render_novel_image_v3(np.sin(((i / n_frames) - 0.5) * np.pi) * 0.5 + 0.5,
-        #                   rays_o, rays_d, vertices_, triangles, resolution_level=4))
+        #                   rays_o[i], rays_d[i], vertices_, triangles, resolution_level=4))
 
         #     break
-   
- 
+
         
 if __name__ == '__main__':
     print('Hello Wooden')
