@@ -334,25 +334,7 @@ class Runner:
                                         '{:0>8d}_{}_{}.png'.format(self.iter_step, i, idx)),
                            normal_img[..., i])
 
-    def get_colored_mesh_v3(self, img_fine, vertices_, N_vertices, triangles):
-
-        v_colors = img_fine.astype(np.uint8)
-        v_colors.dtype = [('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
-        vertices_.dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4')]
-        vertex_all = np.empty(N_vertices, vertices_.dtype.descr+v_colors.dtype.descr)
-        for prop in vertices_.dtype.names:
-            vertex_all[prop] = vertices_[prop][:, 0]
-        for prop in v_colors.dtype.names:
-            vertex_all[prop] = v_colors[prop][:, 0]
-            
-        face = np.empty(len(triangles), dtype=[('vertex_indices', 'i4', (3,))])
-        face['vertex_indices'] = triangles
-
-        PlyData([PlyElement.describe(vertex_all, 'vertex'), 
-                PlyElement.describe(face, 'face')]).write("abc.ply")
-        
-        print('Done!')
-
+   
 
     def render_novel_image(self, idx_0, idx_1, ratio, resolution_level):
         """
@@ -387,68 +369,10 @@ class Runner:
         img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H * W, 3]) * 256).clip(0, 255).astype(np.uint8) 
       
         return img_fine
-    
-    def render_novel_image_v3(self, ratio, rays_o, rays_d, vertices_, triangles, resolution_level=4):
-        """
-        Interpolate view between two cameras.
-        """
-        out_rgb_fine = []
 
-        # try another near - far
-        near = 2.0 * torch.ones_like(rays_d[:, :1])
-        far = 6.0 * torch.ones_like(rays_d[:, :1])
-        near_3 = near[:750]
-        far_3 = far[:750]
-
-        print(f"Near - Far check 1 shape: {len(near_3), len(far_3)}")
-        print(f"Near - Far check 1 shape: {len(near_3[0]), len(far_3[0])}")
-       
-        # try another near - far
-
-        N_vertices = len(vertices_)
-        print("Check 1: rays_o.shape:", len(rays_o))
-        print("Check 1: rays_o.shape:", len(rays_o[0]))
-        rays_o = rays_o.split(750)
-        rays_d = rays_d.split(750)
-        
-        print("Check 2: rays_o.shape:", len(rays_o))
-        print("Check 2: rays_o.shape:", len(rays_o[0]))
-        print("Check 2: rays_o.shape:", len(rays_o[0][0]))
-        
-             
-        for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
-            print("Check 3: Rays_o_batch:", len(rays_o_batch))   
-      
-            near_2, far_2 = self.dataset.near_far_from_sphere(torch.tensor(rays_o_batch), torch.tensor(rays_d_batch)) 
-            print(f"Near - Far check 2 shape: {len(near_2), len(far_2)}")
-            print(f"Near - Far check 2 shape: {len(near_2[0]), len(far_2[0])}")
-
-            # try another near - far
-            # print(f"Near - Far check 2: {near[:10], far[:10]}")
-            # try another near - far
-
-            #comment out for debugging values
-            #background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
-            background_rgb = None
-            render_out = self.renderer.render(rays_o_batch,
-                                              rays_d_batch,
-                                              near_2,
-                                              far_2,
-                                              cos_anneal_ratio=self.get_cos_anneal_ratio(),
-                                              background_rgb=background_rgb)
-            out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
-            
-            del render_out
- 
-      
-        
-        img_fine_2 = (np.concatenate(out_rgb_fine, axis=0).reshape([N_vertices, 3]) * 256).clip(0, 255)
-        
-        #img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H * W, 3]) * 256).clip(0, 255).astype(np.uint8) 
    
-        runner.get_colored_mesh_v3(img_fine_2, vertices_, N_vertices, triangles)
-
-        return img_fine_2
+      
+   
 
     def interpolate_view(self, img_idx_0, img_idx_1):
         images = []
@@ -476,46 +400,89 @@ class Runner:
 
         writer.release()
 
-   
-    def interpolate_view_v3(self):
-        images = []
+    def get_colored_mesh_v3(self, img_fine, vertices_, N_vertices, triangles):
+
+        v_colors = img_fine.astype(np.uint8)
+        v_colors.dtype = [('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
+        vertices_.dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4')]
+        vertex_all = np.empty(N_vertices, vertices_.dtype.descr+v_colors.dtype.descr)
+        for prop in vertices_.dtype.names:
+            vertex_all[prop] = vertices_[prop][:, 0]
+        for prop in v_colors.dtype.names:
+            vertex_all[prop] = v_colors[prop][:, 0]
+
+        face = np.empty(len(triangles), dtype=[('vertex_indices', 'i4', (3,))])
+        face['vertex_indices'] = triangles
+
+        PlyData([PlyElement.describe(vertex_all, 'vertex'), 
+                PlyElement.describe(face, 'face')]).write(f"{self.base_exp_dir}/meshes/exp_run_v1.ply")
+
+        print('Done!')
+
+    def render_novel_image_v3(self, rays_o, rays_d, vertices_, triangles, near, far, resolution_level=4):
+        """
+        Interpolate view between two cameras.
+        """
+        out_rgb_fine = []
+        batch_size = 750
+
+        near = near[:batch_size]
+        far = far[:batch_size]
     
-        n_frames = 1
-        vertices_2, triangles, bound_min, bound_max, mesh = runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
+        N_vertices = len(vertices_)
+
+        B = rays_o.shape[0]
+        print("Rays_o shape: ", rays_o.shape)
+        chunk = 1024
+        for i in range(0, B, chunk):
+            background_rgb = None
+            render_out = self.renderer.render(rays_o[i:i+chunk],
+                                                rays_d[i:i+chunk],
+                                                near[i:i+chunk],
+                                                far[i:i+chunk],
+                                                cos_anneal_ratio=self.get_cos_anneal_ratio(),
+                                                background_rgb=background_rgb)
+            out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
+   
+        img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([N_vertices, 3]) * 256).clip(0, 255)
+
+        #colored_mesh = runner.get_colored_mesh_v3(img_fine, vertices_, N_vertices, triangles)
+
+        v_colors = img_fine.astype(np.uint8)
+        v_colors.dtype = [('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
+        vertices_.dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4')]
+        vertex_all = np.empty(N_vertices, vertices_.dtype.descr+v_colors.dtype.descr)
+        for prop in vertices_.dtype.names:
+            vertex_all[prop] = vertices_[prop][:, 0]
+        for prop in v_colors.dtype.names:
+            vertex_all[prop] = v_colors[prop][:, 0]
+
+        face = np.empty(len(triangles), dtype=[('vertex_indices', 'i4', (3,))])
+        face['vertex_indices'] = triangles
+
+        PlyData([PlyElement.describe(vertex_all, 'vertex'), 
+                PlyElement.describe(face, 'face')]).write(f"{self.base_exp_dir}/meshes/exp_run_v1.ply")
+
+
+   
+    def interpolate_view_v3(self, mesh):
+        
         vertices_ = np.asarray(mesh.vertices).astype(np.float32)
+        triangles = mesh.triangles
+        
+        #kwea version
+        bound_min = 2.0
+        bound_max = 6.0
 
-        # trial for trimesh error
-        # print("trial for trimesh error")
-        # face = np.empty(len(triangles), dtype=[('vertex_indices', 'i4', (3,))])
-        # face['vertex_indices'] = triangles
-
-        # PlyData([PlyElement.describe(vertices_[:, 0], 'vertex'), 
-        #         PlyElement.describe(face, 'face')]).write('test_write.ply')
-
-        # # remove noise in the mesh by keeping only the biggest cluster
-        # print('Removing noise ...')
-        # mesh = o3d.io.read_triangle_mesh("test_write.ply")
-        # trial for trimesh error
-
-
-        # mesh.compute_vertex_normals()
+        mesh.compute_vertex_normals()
         rays_d = torch.cuda.FloatTensor(np.asarray(mesh.vertex_normals))
         near = bound_min * torch.ones_like(rays_d[:, :1])
         far = bound_max * torch.ones_like(rays_d[:, :1])
         rays_o = torch.cuda.FloatTensor(vertices_) - rays_d * near * 1.0
-
-        self.render_novel_image_v3(None,
-                          rays_o, rays_d, vertices_, triangles, resolution_level=4)
-
-        
-        # for i in range(n_frames):
-        #     print(i)
-        #     images.append(self.render_novel_image_v3(np.sin(((i / n_frames) - 0.5) * np.pi) * 0.5 + 0.5,
-        #                   rays_o[i], rays_d[i], vertices_, triangles, resolution_level=4))
-
-        #     break
-
-        
+   
+        return self.render_novel_image_v3(
+                          rays_o, rays_d, vertices_, triangles, near, far, resolution_level=4)
+  
 if __name__ == '__main__':
     print('Hello Wooden')
 
@@ -541,16 +508,12 @@ if __name__ == '__main__':
         runner.train()
     elif args.mode == 'validate_mesh':
         runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
+    
     elif args.mode.startswith('interpolate'):  # Interpolate views given two image indices
-        _, img_idx_0, img_idx_1 = args.mode.split('_')
-        img_idx_0 = int(img_idx_0)
-        img_idx_1 = int(img_idx_1)
-        print("ABC")
-        #runner.interpolate_view(img_idx_0, img_idx_1)
-        runner.interpolate_view_v3()
-   
-    
-    
-      
 
-        
+        mesh = o3d.io.read_triangle_mesh("/home/ubuntu/NeuS/exp/thin_catbus/womask/meshes/exp_run_v1.ply")
+        colored_mesh = runner.interpolate_view_v3(mesh)
+       
+
+    
+    
