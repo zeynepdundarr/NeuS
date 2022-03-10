@@ -500,10 +500,7 @@ if __name__ == '__main__':
         runner.train()
     elif args.mode == 'validate_mesh':
         runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
-     
-
     elif args.mode.startswith('interpolate'):  # Interpolate views given two image indices
-
         mesh = o3d.io.read_triangle_mesh("/home/ubuntu/NeuS/exp/thin_catbus/womask/meshes/00300000.ply")
         #exp_run_v1.ply
         colored_mesh = runner.interpolate_view_v3(mesh)
