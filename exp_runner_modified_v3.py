@@ -22,7 +22,6 @@ from numpy.lib.recfunctions import repack_fields
 
 # trying to clean GPU
 from numba import cuda
-
 def pickle_load(filepath):
     """Loads an object from pickle."""
     with open(filepath, "rb") as f:
